@@ -3,7 +3,7 @@
 Plugin Name:  Baidu TextCensor For Comments
 Plugin URI:   https://github.com/sy-records/wp-baidu-textcensor
 Description:  基于百度文本内容审核技术来提供WordPress评论内容审核
-Version:      1.2.0
+Version:      1.2.1
 Author:       沈唁
 Author URI:   https://qq52o.me
 License:      Apache 2.0
@@ -245,7 +245,30 @@ function bdtc_request_check($option, $comment_data)
 {
     require_once dirname(__FILE__) . '/src/AipBase.php';
     $client = new \Luffy\TextCensor\AipBase($option['app_id'], $option['api_key'], $option['secret_key']);
-    $result = $client->textCensorUserDefined($comment_data['comment_content'], $comment_data['comment_author_email'], $comment_data['comment_author_IP']);
+    
+    // 构建完整的审核文本，包含用户名、网址、邮箱和评论内容，避免利用其传递不良信息
+    $full_text = '';
+    
+    // 添加用户名到审核文本
+    if (!empty($comment_data['comment_author'])) {
+        $full_text .= "用户名: " . $comment_data['comment_author'] . "\n";
+    }
+    
+    // 添加网址到审核文本
+    if (!empty($comment_data['comment_author_url'])) {
+        $full_text .= "网址: " . $comment_data['comment_author_url'] . "\n";
+    }
+    
+    // 添加邮箱到审核文本
+    if (!empty($comment_data['comment_author_email'])) {
+        $full_text .= "邮箱: " . $comment_data['comment_author_email'] . "\n";
+    }
+    
+    // 添加评论内容
+    $full_text .= "评论内容: " . $comment_data['comment_content'];
+    
+    // 调用百度API进行审核
+    $result = $client->textCensorUserDefined($full_text, $comment_data['comment_author_email'], $comment_data['comment_author_IP']);
 
     if (isset($result['error_code'])) {
         add_filter('pre_comment_approved' , '__return_zero');
@@ -255,7 +278,11 @@ function bdtc_request_check($option, $comment_data)
     // 1.合规，2.不合规，3.疑似，4.审核失败
     switch ($result['conclusionType']) {
         case 2:
-            wp_die("评论内容{$result['data'][0]['msg']}，请重新评论", 409);
+            $error_msg = "评论内容包含违规信息";
+            if (isset($result['data'][0]['msg'])) {
+                $error_msg = $result['data'][0]['msg'];
+            }
+            wp_die($error_msg . "，请重新评论", 409);
             break;
         case 3:
         case 4:
